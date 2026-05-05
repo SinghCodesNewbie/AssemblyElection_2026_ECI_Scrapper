@@ -8,11 +8,10 @@ import time
 import os
 
 BASE_URL = "https://results.eci.gov.in/ResultAcGenMay2026/"
-STATE_CODE = "S11"   # Kerala (as per your link)
+STATE_CODE = "S11"   # as per your mapping
 STATE_NAME = "Kerala"
 
 SAVE_FILE = "Kerala Final sheet.csv"
-LOG_FILE = "kerala_log.txt"
 
 
 # -------------------------------
@@ -20,7 +19,6 @@ LOG_FILE = "kerala_log.txt"
 # -------------------------------
 def setup_driver():
     options = Options()
-    options.add_argument("--start-maximized")
     options.add_argument("--disable-blink-features=AutomationControlled")
     options.add_argument("--user-agent=Mozilla/5.0")
 
@@ -31,7 +29,7 @@ def setup_driver():
 
 
 # -------------------------------
-# SAFE GET
+# SAFE PAGE LOAD
 # -------------------------------
 def safe_get(driver, url, retries=3):
     for i in range(retries):
@@ -45,19 +43,10 @@ def safe_get(driver, url, retries=3):
         except:
             pass
 
-        print(f"⚠️ Retry {i+1}: {url}")
+        print(f"Retry {i+1}: {url}")
         time.sleep(2)
 
-    log_error(f"Dead link: {url}")
     return False
-
-
-# -------------------------------
-# LOGGING
-# -------------------------------
-def log_error(msg):
-    with open(LOG_FILE, "a", encoding="utf-8") as f:
-        f.write(msg + "\n")
 
 
 # -------------------------------
@@ -74,14 +63,10 @@ def get_party_links(driver):
     party_links = []
 
     for link in links:
-        try:
-            href = link.get_attribute("href")
+        href = link.get_attribute("href")
 
-            if href and "partywisewinresult-" in href and href.endswith(f"{STATE_CODE}.htm"):
-                party_links.append(href)
-
-        except:
-            continue
+        if href and "partywisewinresult-" in href and href.endswith(f"{STATE_CODE}.htm"):
+            party_links.append(href)
 
     return list(set(party_links))
 
@@ -95,16 +80,15 @@ def scrape_party_page(driver, url):
 
     data = []
 
-    # PARTY NAME
+    # Party name
     party_name = "Unknown"
     try:
-        headings = driver.find_elements(By.TAG_NAME, "h2")
-        if headings:
-            party_name = headings[0].text.strip()
+        heading = driver.find_element(By.TAG_NAME, "h2")
+        party_name = heading.text.strip()
     except:
         pass
 
-    # PARTY ID
+    # Party ID
     try:
         party_id = url.split("partywisewinresult-")[1].split("S")[0]
     except:
@@ -113,52 +97,37 @@ def scrape_party_page(driver, url):
     rows = driver.find_elements(By.TAG_NAME, "tr")
 
     for row in rows:
-        try:
-            cols = row.find_elements(By.TAG_NAME, "td")
+        cols = row.find_elements(By.TAG_NAME, "td")
 
-            if len(cols) >= 6:
-                constituency = cols[1].text.strip()
-                candidate = cols[2].text.strip()
-                votes = cols[4].text.strip()
-                margin = cols[5].text.strip()
+        if len(cols) >= 6:
+            constituency = cols[1].text.strip()
+            candidate = cols[2].text.strip()
+            votes = cols[4].text.strip()
+            margin = cols[5].text.strip()
 
-                if not constituency or "Total" in constituency:
-                    continue
+            if not constituency or "Total" in constituency:
+                continue
 
-                data.append({
-                    "State": STATE_NAME,
-                    "Constituency": constituency,
-                    "Candidate": candidate,
-                    "Party": party_name,
-                    "Party_ID": party_id,
-                    "Votes": votes,
-                    "Margin": margin
-                })
-
-        except:
-            continue
+            data.append({
+                "State": STATE_NAME,
+                "Constituency": constituency,
+                "Candidate": candidate,
+                "Party": party_name,
+                "Party_ID": party_id,
+                "Votes": votes,
+                "Margin": margin
+            })
 
     return data
 
 
 # -------------------------------
-# SAVE DATA
-# -------------------------------
-def save_data(data):
-    df = pd.DataFrame(data)
-
-    if os.path.exists(SAVE_FILE):
-        df.to_csv(SAVE_FILE, mode="a", header=False, index=False)
-    else:
-        df.to_csv(SAVE_FILE, index=False)
-
-
-# -------------------------------
-# MAIN
+# MAIN RUN
 # -------------------------------
 def run():
     driver = setup_driver()
 
+    all_data = []
     visited = set()
 
     print("🚀 Scraping Kerala...")
@@ -173,21 +142,20 @@ def run():
 
         visited.add(link)
 
-        try:
-            data = scrape_party_page(driver, link)
+        data = scrape_party_page(driver, link)
 
-            if data:
-                save_data(data)
-                print(f"✅ {len(data)} rows scraped")
-            else:
-                log_error(f"Empty: {link}")
-
-        except:
-            log_error(f"Failed: {link}")
+        if data:
+            all_data.extend(data)
+            print(f"✅ {len(data)} rows scraped")
+        else:
+            print(f"⚠️ Skipped: {link}")
 
     driver.quit()
 
-    print(f"\n✅ DONE — File saved as: {SAVE_FILE}")
+    df = pd.DataFrame(all_data)
+    df.to_csv(SAVE_FILE, index=False)
+
+    print(f"\n✅ DONE — Saved as: {SAVE_FILE}")
 
 
 # -------------------------------
